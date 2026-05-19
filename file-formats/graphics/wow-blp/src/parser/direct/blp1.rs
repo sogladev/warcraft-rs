@@ -2,6 +2,7 @@ use super::super::bounds::get_bounded_slice;
 use super::super::reader::{ByteReader, Cursor};
 use super::super::types::ParseResult;
 use crate::types::*;
+use log::*;
 
 pub fn parse_raw1<'a>(
     blp_header: &BlpHeader,
@@ -33,12 +34,23 @@ pub fn parse_raw1<'a>(
     read_image(0)?;
     if blp_header.has_mipmaps() {
         for (i, &size) in sizes.iter().enumerate().skip(1) {
-            if size == 0 {
-                break;
-            }
             if i > blp_header.mipmaps_count() {
                 break;
             }
+            let offset = offsets[i];
+            if size == 0 || offset == 0 {
+                trace!("Size/offset indicates no data for mipmap {i}; stopping");
+                break;
+            }
+            if (offset as usize) >= original_input.len() {
+                trace!("Offset of mipmap {i} is at/after EOF: {} >= {}", offset, original_input.len());
+                break;
+            }
+            if (offset as usize).checked_add(size as usize).unwrap_or(usize::MAX) > original_input.len() {
+                trace!("Size of mipmap {i} exceeds file bounds; stopping");
+                break;
+            }
+
             read_image(i)?;
         }
     }

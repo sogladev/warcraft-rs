@@ -42,10 +42,20 @@ pub fn parse_raw3<'a>(
             .take((blp_header.mipmaps_count() + 1).min(16))
             .skip(1)
         {
-            if size == 0 {
-                trace!("Size of mipmap {i} is 0 bytes, I stop reading of images");
+            let offset = offsets[i];
+            if size == 0 || offset == 0 {
+                trace!("Size/offset indicates no data for mipmap {i}; stopping");
                 break;
             }
+            if (offset as usize) >= original_input.len() {
+                trace!("Offset of mipmap {i} is at/after EOF: {} >= {}", offset, original_input.len());
+                break;
+            }
+            if (offset as usize).checked_add(size as usize).unwrap_or(usize::MAX) > original_input.len() {
+                trace!("Size of mipmap {i} exceeds file bounds; stopping");
+                break;
+            }
+
             read_image(i)?;
         }
     }
@@ -66,32 +76,7 @@ pub fn parse_dxtn<'a>(
     let mut read_image = |i: usize| -> ParseResult<()> {
         let offset = offsets[i];
         let size = sizes[i];
-        if offset as usize >= original_input.len() {
-            error!(
-                "Offset of mipmap {} is out of bounds! {} >= {}",
-                i,
-                offset,
-                original_input.len()
-            );
-            return Err(Error::OutOfBounds {
-                offset: offset as usize,
-                size: 0,
-            });
-        }
-        if (offset + size) as usize > original_input.len() {
-            error!(
-                "Offset+size of mipmap {} is out of bounds! {} > {}",
-                i,
-                offset + size,
-                original_input.len()
-            );
-            return Err(Error::OutOfBounds {
-                offset: offset as usize,
-                size: size as usize,
-            });
-        }
-
-        let image_bytes = &original_input[offset as usize..(offset + size) as usize];
+        let image_bytes = get_bounded_slice(original_input, offset, size, i)?;
         let n = blp_header.mipmap_pixels(i);
         let blocks_n = ((n as f32) / 16.0).ceil() as usize;
         let mut blocks_size = blocks_n * dxtn.block_size();
@@ -121,6 +106,21 @@ pub fn parse_dxtn<'a>(
     if blp_header.has_mipmaps() {
         trace!("Mipmaps count: {}", blp_header.mipmaps_count());
         for i in 1..(blp_header.mipmaps_count() + 1).min(16) {
+            let offset = offsets[i];
+            let size = sizes[i];
+            if size == 0 || offset == 0 {
+                trace!("Size/offset indicates no data for mipmap {i}; stopping");
+                break;
+            }
+            if (offset as usize) >= original_input.len() {
+                trace!("Offset of mipmap {i} is at/after EOF: {} >= {}", offset, original_input.len());
+                break;
+            }
+            if (offset as usize).checked_add(size as usize).unwrap_or(usize::MAX) > original_input.len() {
+                trace!("Size of mipmap {i} exceeds file bounds; stopping");
+                break;
+            }
+
             read_image(i)?;
         }
     }
